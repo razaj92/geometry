@@ -1,36 +1,68 @@
-# geometry_kube - show kubectl client version and current context/namespace.
-geometry_kube_symbol() {
-  ansi ${GEOMETRY_KUBE_COLOR:=blue} ${GEOMETRY_KUBE_SYMBOL:="⎈"}
-}
+# geometry_kube - show the current kubectl context/namespace, and optionally client version.
 
-geometry_kube_namespace() {
-  local kube_namespace="$(kubectl config view --minify --output "jsonpath={..namespace}" 2> /dev/null)"
-  ansi ${GEOMETRY_KUBE_NAMESPACE_COLOR:=default} ${kube_namespace:=default}
-}
+emulate -L zsh
 
-geometry_kube_context() {
-  local kube_context="$(kubectl config current-context 2> /dev/null)"
-  ansi ${GEOMETRY_KUBE_CONTEXT_COLOR:=default} ${kube_context}
-}
+: ${GEOMETRY_KUBE_COLOR:=blue}
+: ${GEOMETRY_KUBE_SYMBOL:=⎈}
+: ${GEOMETRY_KUBE_SEPARATOR:=|}
+: ${GEOMETRY_KUBE_VERSION:=true}
+: ${GEOMETRY_KUBE_PIN:=false}
+: ${GEOMETRY_KUBE_CONTEXT_COLOR:=default}
+: ${GEOMETRY_KUBE_NAMESPACE_COLOR:=default}
+: ${GEOMETRY_KUBE_VERSION_COLOR:=default}
+: ${GEOMETRY_KUBE_MAX_CONTEXT_LEN:=0}
 
-geometry_kube_version() {
-  [[ $(kubectl version --client --short) =~ 'Client Version: ([0-9a-zA-Z.]+)' ]]
-  local kube_version=($match[1])
-  ansi ${GEOMETRY_KUBE_VERSION_COLOR:=default} ${kube_version:=default}
+geometry::kube::version() {
+  # Resolved once per shell by geometry::kube::resolve; see the note there on
+  # why `--short` is gone and why stderr must be discarded.
+  [[ -n "$GEOMETRY[kube_version]" ]] || return
+  ansi $GEOMETRY_KUBE_VERSION_COLOR "$GEOMETRY[kube_version]"
 }
 
 (( $+commands[kubectl] )) || return
 
-( ${GEOMETRY_KUBE_PIN:=true} ) || return
+# Populated by the geometry::kube::resolve precmd hook in the parent shell, so
+# the usual case costs no fork at all. Calling it here covers the very first
+# render and non-interactive use; it is a no-op once the hook has run.
+geometry::kube::resolve
 
-( ${GEOMETRY_KUBE_PIN:=false} ) || [[ -n "$KUBECONFIG" ]] || [[ -n "$(kubectl config current-context 2> /dev/null)" ]] || return
+local ctx="${GEOMETRY[kube_context]}"
+local ns="${GEOMETRY[kube_namespace]}"
 
-local geometry_kube_details && geometry_kube_details=(
-  $(geometry_kube_symbol)
-  $(geometry_kube_context)
-  $(geometry_kube_namespace)
-  $(geometry_kube_version)
-)
+[[ $GEOMETRY_KUBE_PIN == true ]] || [[ -n "$KUBECONFIG" ]] || [[ -n "$ctx" ]] || return
 
-local separator=${GEOMETRY_KUBE_SEPARATOR:-"|"}
-echo -n ${(pj.$separator.)geometry_kube_details}
+: ${ctx:=none}
+: ${ns:=default}
+
+# zsh silently drops an RPROMPT that does not fit the terminal, taking every
+# other segment with it, so a very long context name is a correctness problem
+# and not just a cosmetic one. Keep the tail, which is the distinguishing half
+# of prefix_cluster style names.
+local -i max=$GEOMETRY_KUBE_MAX_CONTEXT_LEN keep
+if (( max > 1 && ${#ctx} > max )); then
+  keep=max-1
+  ctx="…${ctx[-keep,-1]}"
+fi
+
+# The prompt is subject to prompt expansion, so a literal % must be doubled or
+# a context named e.g. gke_p%d_... renders as a prompt escape.
+ctx="${ctx//\%/%%}"
+ns="${ns//\%/%%}"
+
+# `ansi` accepts exactly two arguments and silently prints nothing otherwise,
+# so quote unconditionally. Sequential calls concatenate straight onto stdout,
+# which avoids a command substitution per field.
+ansi $GEOMETRY_KUBE_COLOR "$GEOMETRY_KUBE_SYMBOL"
+builtin print -rn -- " "
+ansi $GEOMETRY_KUBE_CONTEXT_COLOR "$ctx"
+builtin print -rn -- "$GEOMETRY_KUBE_SEPARATOR"
+ansi $GEOMETRY_KUBE_NAMESPACE_COLOR "$ns"
+
+if [[ $GEOMETRY_KUBE_VERSION == true && -n "$GEOMETRY[kube_version]" ]]; then
+  builtin print -rn -- "$GEOMETRY_KUBE_SEPARATOR"
+  geometry::kube::version
+fi
+
+# geometry::wrap discards a segment whose exit status is non-zero, so the
+# status of the last conditional above must not leak out.
+return 0

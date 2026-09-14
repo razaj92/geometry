@@ -13,6 +13,7 @@ builtin typeset -gA GEOMETRY
 (($+GEOMETRY_COMMAND_TITLE)) || GEOMETRY_COMMAND_TITLE=(geometry_last_command geometry_hostname)
 
 builtin autoload -U add-zsh-hook
+zmodload -F zsh/stat b:zstat
 
 fpath+=("${0:A:h}"/functions)
 autoload -Uz \
@@ -129,11 +130,89 @@ geometry::rprompt() {
   builtin zle -F "$GEOMETRY_ASYNC_FD" geometry::rprompt::set
 }
 
+# geometry::kube::resolve - cache the current kube context/namespace.
+#
+# Prompt functions run in a forked subshell (see geometry::wrap), so they can
+# never write cache state back into the interactive shell. Resolving here, in a
+# precmd hook, lets the fork simply inherit the result: kubectl is spawned only
+# when the active kubeconfig set actually changes, not once per prompt.
+geometry::kube::resolve() {
+  emulate -L zsh
+  (( $+commands[kubectl] )) || return
+
+  # The kubectl binary cannot change under a running shell, so resolve the
+  # client version at most once. The "checked" flag keeps a failed match from
+  # re-forking on every prompt.
+  if [[ ${GEOMETRY_KUBE_VERSION:-true} == true && -z "$GEOMETRY[kube_version_checked]" ]]; then
+    GEOMETRY[kube_version_checked]=1
+    local ver="$(command kubectl version --client 2>/dev/null)"
+    [[ $ver =~ 'Client Version: ([0-9a-zA-Z.]+)' ]] && GEOMETRY[kube_version]=$match[1]
+  fi
+
+  local -a cfgs
+  local -A st
+  local f sig="k=${KUBECONFIG}"
+
+  if [[ -n "$KUBECONFIG" ]]; then
+    cfgs=(${(s.:.)KUBECONFIG})
+  else
+    cfgs=("$HOME/.kube/config")
+  fi
+
+  # NB: zstat takes only ONE +element - "zstat +mtime +size" parses +size as a
+  # filename and fails - so use the -H hash form. size and inode alongside mtime
+  # also catch a write-then-rename, which whole-second mtime alone can miss.
+  for f in $cfgs; do
+    if zstat -H st -- "$f" 2>/dev/null; then
+      sig+="|$f:${st[mtime]}:${st[size]}:${st[inode]}"
+    else
+      sig+="|$f:-"
+    fi
+  done
+
+  [[ $sig == "$GEOMETRY[kube_sig]" ]] && return 0
+  GEOMETRY[kube_sig]=$sig
+
+  # One call, and deliberately NOT --minify: --minify runs a local consistency
+  # check and exits non-zero when the current context names a cluster that is
+  # absent from the file, which would lose the context name as well. Line 1 of
+  # the output is the current context; every line after it is "name<TAB>ns".
+  local raw
+  if ! raw="$(command kubectl config view \
+        --output 'jsonpath={.current-context}{"\n"}{range .contexts[*]}{.name}{"\t"}{.context.namespace}{"\n"}{end}' \
+        2>/dev/null)"; then
+    GEOMETRY[kube_context]=
+    GEOMETRY[kube_namespace]=
+    return 0
+  fi
+
+  local -a lines
+  local -i i
+  local l ctx
+  lines=("${(@f)raw}")
+  ctx="${lines[1]}"
+  GEOMETRY[kube_context]="$ctx"
+  GEOMETRY[kube_namespace]=
+
+  [[ -n $ctx ]] || return 0
+  for (( i = 2; i <= ${#lines}; i++ )); do
+    l="${lines[i]}"
+    if [[ "${l%%$'\t'*}" == "$ctx" ]]; then
+      GEOMETRY[kube_namespace]="${l#*$'\t'}"
+      break
+    fi
+  done
+  return 0
+}
+
 geometry::prompt() {
   export GEOMETRY_STATUS=$status
   PROMPT=" $(geometry::wrap $PWD $GEOMETRY_PROMPT) "
 }
 
+# ahead of the prompt hooks, so a kubectx/kubens change is visible on the very
+# next prompt rather than the one after it
+add-zsh-hook precmd geometry::kube::resolve
 add-zsh-hook precmd geometry::prompt
 add-zsh-hook precmd geometry::rprompt
 

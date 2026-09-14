@@ -10,6 +10,7 @@ emulate -L zsh
 : ${GEOMETRY_KUBE_CONTEXT_COLOR:=default}
 : ${GEOMETRY_KUBE_NAMESPACE_COLOR:=default}
 : ${GEOMETRY_KUBE_VERSION_COLOR:=default}
+: ${GEOMETRY_KUBE_MAX_CONTEXT_LEN:=0}
 
 geometry::kube::version() {
   # Resolved once per shell by geometry::kube::resolve; see the note there on
@@ -32,6 +33,16 @@ local ns="${GEOMETRY[kube_namespace]}"
 
 : ${ctx:=none}
 : ${ns:=default}
+
+# zsh silently drops an RPROMPT that does not fit the terminal, taking every
+# other segment with it, so a very long context name is a correctness problem
+# and not just a cosmetic one. Keep the tail, which is the distinguishing half
+# of prefix_cluster style names.
+local -i max=$GEOMETRY_KUBE_MAX_CONTEXT_LEN keep
+if (( max > 1 && ${#ctx} > max )); then
+  keep=max-1
+  ctx="…${ctx[-keep,-1]}"
+fi
 
 # The prompt is subject to prompt expansion, so a literal % must be doubled or
 # a context named e.g. gke_p%d_... renders as a prompt escape.

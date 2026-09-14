@@ -159,6 +159,7 @@ Show kubectl (Kubernetes) client version and current context/namespace.
 | `GEOMETRY_KUBE_CONTEXT_COLOR`   | Color for the k8s context                  |          |
 | `GEOMETRY_KUBE_NAMESPACE_COLOR` | Color for the k8s namespace                |          |
 | `GEOMETRY_KUBE_SEPARATOR`       | Wrap plugin with a separator               | `|`      |
+| `GEOMETRY_KUBE_MAX_CONTEXT_LEN` | Truncate the context to this many characters, keeping the tail. `0` disables. | `0` |
 
 ## `geometry_node`
 

@@ -154,8 +154,8 @@ Show kubectl (Kubernetes) client version and current context/namespace.
 | ------------------------------- | ------------------------------------------ | -------- |
 | `GEOMETRY_KUBE_COLOR`           | Color for the indicator.                   | `blue`   |
 | `GEOMETRY_KUBE_SYMBOL`          | Indicator.                                 | `⎈`      |
-| `GEOMETRY_KUBE_PIN`             | Can be set to always show `geometry_kube`. |          |
-| `GEOMETRY_KUBE_VERSION`         | Display k8s Cluster version.               | `true`   |
+| `GEOMETRY_KUBE_PIN`             | Always show, even with no current context. | `false`  |
+| `GEOMETRY_KUBE_VERSION`         | Display the kubectl client version.        | `true`   |
 | `GEOMETRY_KUBE_CONTEXT_COLOR`   | Color for the k8s context                  |          |
 | `GEOMETRY_KUBE_NAMESPACE_COLOR` | Color for the k8s namespace                |          |
 | `GEOMETRY_KUBE_SEPARATOR`       | Wrap plugin with a separator               | `|`      |

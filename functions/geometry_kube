@@ -12,23 +12,21 @@ emulate -L zsh
 : ${GEOMETRY_KUBE_VERSION_COLOR:=default}
 
 geometry::kube::version() {
-  # `--short` was removed in kubectl 1.28+; the plain output still reads
-  # "Client Version: v1.36.2", which this pattern already handles. stderr is
-  # discarded because geometry renders RPROMPT in a subshell whose stdout is
-  # captured but whose stderr still goes to the terminal.
-  local out="$(command kubectl version --client 2>/dev/null)"
-  [[ $out =~ 'Client Version: ([0-9a-zA-Z.]+)' ]] || return
-  ansi $GEOMETRY_KUBE_VERSION_COLOR $match[1]
+  # Resolved once per shell by geometry::kube::resolve; see the note there on
+  # why `--short` is gone and why stderr must be discarded.
+  [[ -n "$GEOMETRY[kube_version]" ]] || return
+  ansi $GEOMETRY_KUBE_VERSION_COLOR "$GEOMETRY[kube_version]"
 }
 
 (( $+commands[kubectl] )) || return
 
-# `command` bypasses any kubectl alias (kubecolor and friends), which would
-# otherwise be free to inject ANSI into a string embedded verbatim in RPROMPT.
-local ctx ns
-ctx="$(command kubectl config current-context 2>/dev/null)"
-ns="$(command kubectl config view --minify \
-  --output 'jsonpath={.contexts[0].context.namespace}' 2>/dev/null)"
+# Populated by the geometry::kube::resolve precmd hook in the parent shell, so
+# the usual case costs no fork at all. Calling it here covers the very first
+# render and non-interactive use; it is a no-op once the hook has run.
+geometry::kube::resolve
+
+local ctx="${GEOMETRY[kube_context]}"
+local ns="${GEOMETRY[kube_namespace]}"
 
 [[ $GEOMETRY_KUBE_PIN == true ]] || [[ -n "$KUBECONFIG" ]] || [[ -n "$ctx" ]] || return
 
